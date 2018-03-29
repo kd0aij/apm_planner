@@ -26,16 +26,16 @@ namespace kml {
  * @brief A GPS record from a log file.
  */
 struct GPSRecord: DataLine {
-    QString hdop()  { return values.value("HDop"); }
-    QString lat()   { return values.value("Lat"); }
-    QString lng()   { return values.value("Lng"); }
-    QString alt()   { return values.value("Alt"); }
-    QString speed() { return values.value("Spd"); }
-    QString crs()   { return values.value("GCrs"); }
-    QString vz()    { return values.value("VZ"); }
+    QString hdop()  const { return values.value("HDop"); }
+    QString lat()   const { return values.value("Lat"); }
+    QString lng()   const { return values.value("Lng"); }
+    QString alt()   const { return values.value("Alt"); }
+    QString speed() const { return values.value("Spd"); }
+    QString crs()   const { return values.value("GCrs"); }
+    QString vz()    const { return values.value("VZ"); }
 
     // older logs have TimeMS instead of TimeUS; Also GMS->GPSTimeMS and GWk->Week
-    QString msec()  {
+    QString msec() const {
         if (values.contains("GMS")) {
             return values.value("GMS");
         }
@@ -43,7 +43,7 @@ struct GPSRecord: DataLine {
             return values.value("GPSTimeMS");
         }
     }
-    QString week()  {
+    QString week() const {
         if (values.contains("GWk")) {
             return values.value("GWk");
         }
@@ -51,7 +51,7 @@ struct GPSRecord: DataLine {
             return values.value("Week");
         }
     }
-    QString timeUS()  {
+    QString timeUS() const {
         if (values.contains("TimeUS")) {
             return values.value("TimeUS");
         }
@@ -66,14 +66,14 @@ struct GPSRecord: DataLine {
         return status && (week > 0);
     }
 
-    QString toStringForKml() {
+    QString toStringForKml() const {
         QString str = QString("%1,%2,%3").arg(lng(), lat(), alt());
         return str;
     }
 
     static GPSRecord from(FormatLine& format, QString& line);
 
-    qint64 getUtc_ms() {
+    qint64 getUtc_ms() const {
         // msec since start of week (max value is 2^29.17, so it just fits in a signed 32 bit int)
         int32_t week_ms = this->msec().toInt();
         // weeks since 6 Jan 1980

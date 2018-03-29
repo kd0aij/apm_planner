@@ -558,18 +558,18 @@ QString KMLCreator::finish(bool kmz) {
         writer.writeEndElement(); // PolyStyle
     writer.writeEndElement(); // Style
 
-    writer.writeStartElement("Folder");
-    writer.writeTextElement("name", "Flight Path");
-    writer.writeTextElement("description", m_summary->summarize());
+//    writer.writeStartElement("Folder");
+//    writer.writeTextElement("name", "Flight Path");
+//    writer.writeTextElement("description", m_summary->summarize());
 
-    /*
-     * Flight path (complete)
-     */
-    foreach(Placemark *pm, m_placemarks) {
-        writePathElement(writer, pm);
-    }
+//    /*
+//     * Flight path (complete)
+//     */
+//    foreach(Placemark *pm, m_placemarks) {
+//        writePathElement(writer, pm);
+//    }
 
-    writer.writeEndElement(); // Folder
+//    writer.writeEndElement(); // Folder
 
     writer.writeStartElement("Folder");
     writer.writeTextElement("name", "Flight Path (maneuvers)");
@@ -582,18 +582,18 @@ QString KMLCreator::finish(bool kmz) {
 
     writer.writeEndElement(); // Folder
 
-    /*
-     * Planes element
-     */
-    writer.writeStartElement("Folder");
-    writer.writeTextElement("name", "Attitudes");
+//    /*
+//     * Planes element
+//     */
+//    writer.writeStartElement("Folder");
+//    writer.writeTextElement("name", "Attitudes");
 
-    int idx = 0;
-    foreach(Placemark *pm, m_placemarks) {
-        writePlanePlacemarkElement(writer, pm, idx);
-    }
+//    int idx = 0;
+//    foreach(Placemark *pm, m_placemarks) {
+//        writePlanePlacemarkElement(writer, pm, idx);
+//    }
 
-    writer.writeEndElement(); // Folder
+//    writer.writeEndElement(); // Folder
 
     /*
      * Planes element (quaternion)
@@ -601,7 +601,7 @@ QString KMLCreator::finish(bool kmz) {
     writer.writeStartElement("Folder");
     writer.writeTextElement("name", "EKFattitudes");
 
-    idx = 0;
+    int idx = 0;
     foreach(Placemark *pm, m_placemarks) {
         writePlanePlacemarkElementQ(writer, pm, idx);
     }
@@ -850,18 +850,24 @@ void KMLCreator::writePlanePlacemarkElementQ(QXmlStreamWriter &writer, Placemark
     GPSRecord gps = p->mPoints.at(0);
     float curLat = gps.lat().toFloat();
     float curLng = gps.lng().toFloat();
+    float curAlt = gps.alt().toFloat();
 
     foreach(GPSRecord c, p->mPoints) {
 
         if (index >= p->mAttQuat.size()) break;
 
-        // TODO: make this a 3D distance to handle vertical flightpaths
         float newLat = c.lat().toFloat();
         float newLng = c.lng().toFloat();
-        distance = 1000 * distanceBetween(curLat, curLng, newLat, newLng);
+        float newAlt = c.alt().toFloat();
+
+        distance = 1000 * distanceBetween(curLat, curLng, newLat, newLng);  // meters
+        float altdiff = newAlt - curAlt;
+        distance = sqrt(distance*distance + altdiff*altdiff);
+
         if (distance > m_iconInterval) {
             curLat = newLat;
             curLng = newLng;
+            curAlt = newAlt;
             QString dateTime = utc2KmlTimeStamp(c.getUtc_ms());
 
             writer.writeStartElement("Placemark");
@@ -1005,7 +1011,7 @@ void KMLCreator::endLogPlaceMark(int seq, qint64 startUtc, qint64 endUtc,
     writer.writeEndElement(); // TimeSpan
 
     writer.writeTextElement("name", title + ": " + QString::number(seq));
-    writer.writeTextElement("description", utc2KmlTimeStamp(startUtc));
+    writer.writeTextElement("description", utc2KmlTimeStamp(startUtc) + "\n" + utc2KmlTimeStamp(endUtc));
     writer.writeTextElement("styleUrl", "#yellowLineGreenPoly");
 
     writer.writeStartElement("Style");
@@ -1034,12 +1040,15 @@ void KMLCreator::writeManeuversElement(QXmlStreamWriter &writer, ManeuverData &m
 
     // This needs a 2-pass approach for simplicity: first pass
     // construct a list of straight & level start and end indexes
-    struct SLSegment {
-        SLSegment(int b, int e): begin(b), end(e) {}
+    struct SegSpec {
+        SegSpec(int b, int e, qint64 sutc, qint64 eutc, float d): begin(b), end(e), beginUtc(sutc), endUtc(eutc), duration(d) {}
         int begin;
         int end;
+        qint64 beginUtc;
+        qint64 endUtc;
+        qint64 duration;
     };
-    QList<SLSegment*> slSegments;
+    QList<SegSpec*> slSegments;
     int slBegin = 0;
     float avgRoll = 0;
     float avgPitch = 0;
@@ -1056,8 +1065,15 @@ void KMLCreator::writeManeuversElement(QXmlStreamWriter &writer, ManeuverData &m
         if (sAndL) {
             if (!slcheck) {
                 // vehicle is no longer straight and level
-                SLSegment* x = new SLSegment(slBegin, listIndex);
-                slSegments.append(x);
+                // check segment duration
+                qint64 beginUtc = md.mGPS.at(slBegin).getUtc_ms();
+                qint64 endUtc = md.mGPS.at(listIndex).getUtc_ms();
+                qint64 duration = endUtc - beginUtc;
+                // if segment is longer than 3 seconds
+                if (duration > 3000) {
+                    // record this segment
+                    slSegments.append(new SegSpec(slBegin, listIndex, beginUtc, endUtc, duration));
+                }
                 sAndL = false;
             }
         } else {
@@ -1074,30 +1090,32 @@ void KMLCreator::writeManeuversElement(QXmlStreamWriter &writer, ManeuverData &m
     // and the first entry in slEnd will occur shortly after takeoff.
     // Thereafter, we should see pairs of entries in slBegin and slEnd
     // which mark straight & level flight between maneuvers.
-    int segNum = 0;
     QString coords("\n");
     QString lastCoords;
-    foreach(SLSegment *segp, slSegments) {
-        // check segment length
-        GPSRecord gpsRec = md.mGPS.at(segp->begin);
-        qint64 startUtc = gpsRec.getUtc_ms();
-        gpsRec = md.mGPS.at(segp->end);
-        qint64 endUtc = gpsRec.getUtc_ms();
-
-        // if segment is longer than 3 seconds
-        if ((endUtc - startUtc) > 3000) {
-            // start a new Placemark
-            writer.writeStartElement("Placemark");
-            QString title("straightLevel");
-            QString color("FF00FF00");
-            for (int i=segp->begin; i<=segp->end; i++) {
-                GPSRecord gpsRec = md.mGPS.at(i);
-                lastCoords = gpsRec.toStringForKml();
-                coords += lastCoords + "\n";
-            }
-            endLogPlaceMark(segNum++, startUtc, endUtc, coords, writer, title, color);
-            coords.clear();
+    QList<SegSpec> LevelSeg;
+    for (int segNum=0; segNum<slSegments.size()-1;) {
+        int begin;
+        if (segNum > 0) {
+            begin = (slSegments.at(segNum)->begin + slSegments.at(segNum)->end) / 2;
+        } else {
+            begin = slSegments.at(segNum)->begin;
         }
+        qint64 startUtc = md.mGPS.at(begin).getUtc_ms();  //slSegments.at(segNum)->startUtc;
+
+        int end = (slSegments.at(segNum+1)->begin + slSegments.at(segNum+1)->end) / 2;
+        qint64 endUtc = md.mGPS.at(end).getUtc_ms(); //slSegments.at(segNum+1)->endUtc;
+
+        // start a new Placemark
+        writer.writeStartElement("Placemark");
+        QString title("Maneuver");
+        QString color("FF00FF00");
+        for (int i=begin; i<=end; i++) {
+            GPSRecord gpsRec = md.mGPS.at(i);
+            lastCoords = gpsRec.toStringForKml();
+            coords += lastCoords + "\n";
+        }
+        endLogPlaceMark(segNum++, startUtc, endUtc, coords, writer, title, color);
+        coords.clear();
     }
 }
 
