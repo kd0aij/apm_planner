@@ -189,7 +189,7 @@ void AsciiLogExporter::writeLine(QString &line)
 
 void AsciiLogExporter::endExport()
 {
-    m_ExportResult.append("Successfull exported to ");
+    m_ExportResult.append("Successfully exported to ");
     m_ExportResult.append(m_outputFile.fileName());
     QLOG_DEBUG() << m_ExportResult;
     m_outputFile.close();
@@ -227,7 +227,7 @@ void KmlLogExporter::writeLine(QString &line)
 void KmlLogExporter::endExport()
 {
     QString generated = m_kmlExporter.finish(true);
-    m_ExportResult.append("Successfull exported to ");
+    m_ExportResult.append("Successfully exported to ");
     m_ExportResult.append(generated);
     QLOG_DEBUG() << m_ExportResult;
 }
