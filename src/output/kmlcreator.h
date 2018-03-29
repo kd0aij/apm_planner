@@ -282,6 +282,31 @@ struct CommandedWaypoint: DataLine {
 };
 
 /**
+ * @brief A container of data for aerobatic maneuver logs in a KML file.
+ * First pass through logfile calls processLine which creates a list of GPSRecord
+ * and associated POS attitude records in this struct.
+ * and marks
+ * the beginning and end of all "straight and level" flight segments.
+ * Each maneuver consists of all records from beginning of S&L segN to
+ * the end of S&L segN+1. Takeoff and landing are special; from start of
+ * log to beginning of S&L seg0 and from last S&L seg to end of log, respectively.
+ *
+ */
+class ManeuverData {
+public:
+    ManeuverData(){};
+    ~ManeuverData(){};
+
+    void add(GPSRecord &p, Attitude &a) {
+        this->mGPS.append(p);
+        this->mAttitudes.append(a);
+    }
+
+    QList<GPSRecord> mGPS;
+    QList<Attitude> mAttitudes;
+};
+
+/**
  * @brief A container of data for creating Placemarks in a KML file.
  */
 struct Placemark {
@@ -351,15 +376,18 @@ private:
     Placemark *lastPlacemark();
 
     void writePathElement(QXmlStreamWriter &writer, Placemark *p);
-    void writeLogPlacemarkElement(QXmlStreamWriter &, Placemark *);
+    void writeManeuversElement(QXmlStreamWriter &, ManeuverData &);
     void writePlanePlacemarkElement(QXmlStreamWriter &, Placemark *, int &);
     void writePlanePlacemarkElementQ(QXmlStreamWriter &, Placemark *, int &);
     void writeWaypointsPlacemarkElement(QXmlStreamWriter &);
     void endLogPlaceMark(int seq, qint64 startUtc, qint64 endUtc,
             QString& coords, QXmlStreamWriter& writer, Placemark* p);
+    void endLogPlaceMark(int seq, qint64 startUtc, qint64 endUtc,
+            QString& coords, QXmlStreamWriter& writer, QString& title, QString& color);
 
     QString m_filename;
     QList<Placemark *> m_placemarks;
+    ManeuverData m_maneuverData;
     QList<CommandedWaypoint> m_waypoints;
     QHash<QString, FormatLine> m_formatLines;
     SummaryData* m_summary;
