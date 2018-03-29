@@ -1046,68 +1046,58 @@ void KMLCreator::writeManeuversElement(QXmlStreamWriter &writer, ManeuverData &m
     float d = 0.95; // single-pole IIR low pass filter
     float rollThresh = 15.0f; // 15 degrees
     float pitchThresh = 15.0f; // 15 degrees
-    enum SLState {
-        sAndL, not_sAndL
-    };
-    SLState slState = sAndL;
+    bool sAndL = true;
     int listIndex = 0;
     foreach(Attitude att, md.mAttitudes) {
         avgRoll += (1.0f - d) * (att.roll().toFloat() - avgRoll);
         avgPitch += (1.0f - d) * (att.pitch().toFloat() - avgPitch);
         bool slcheck = ((fabs(avgRoll) < rollThresh) || (fabs(avgRoll-3.1416f) < rollThresh)) &&
                        (fabs(avgPitch) < pitchThresh);
-        switch (slState) {
-        case sAndL:
+        if (sAndL) {
             if (!slcheck) {
                 // vehicle is no longer straight and level
                 SLSegment* x = new SLSegment(slBegin, listIndex);
                 slSegments.append(x);
-                slState = not_sAndL;
+                sAndL = false;
             }
-            break;
-        case not_sAndL:
+        } else {
             if (slcheck) {
                 // vehicle is now straight and level
                 slBegin = listIndex;
-                slState = sAndL;
+                sAndL = true;
             }
-            break;
         }
         listIndex++;
     }
 
-    // Since slState is init'ed to sAndL, the first entry in slBegin will be 0
+    // Since sAndL is init'ed to true, the first entry in slBegin will be 0
     // and the first entry in slEnd will occur shortly after takeoff.
     // Thereafter, we should see pairs of entries in slBegin and slEnd
     // which mark straight & level flight between maneuvers.
     int segNum = 0;
     QString coords("\n");
     QString lastCoords;
-    qint64 startUtc=0, endUtc=0;
     foreach(SLSegment *segp, slSegments) {
+        // check segment length
+        GPSRecord gpsRec = md.mGPS.at(segp->begin);
+        qint64 startUtc = gpsRec.getUtc_ms();
+        gpsRec = md.mGPS.at(segp->end);
+        qint64 endUtc = gpsRec.getUtc_ms();
 
-        QString title("straightLevel");
-        QString color("FF00FF00");
-        for (int i=segp->begin; i<=segp->end; i++) {
-            GPSRecord gpsRec = md.mGPS.at(i);
-            if (startUtc == 0) {
-                startUtc = gpsRec.getUtc_ms();
-                // create first Placemark
-                writer.writeStartElement("Placemark");
+        // if segment is longer than 3 seconds
+        if ((endUtc - startUtc) > 3000) {
+            // start a new Placemark
+            writer.writeStartElement("Placemark");
+            QString title("straightLevel");
+            QString color("FF00FF00");
+            for (int i=segp->begin; i<=segp->end; i++) {
+                GPSRecord gpsRec = md.mGPS.at(i);
+                lastCoords = gpsRec.toStringForKml();
+                coords += lastCoords + "\n";
             }
-            lastCoords = gpsRec.toStringForKml();
-            coords += lastCoords + "\n";
-            endUtc = gpsRec.getUtc_ms();
-
+            endLogPlaceMark(segNum++, startUtc, endUtc, coords, writer, title, color);
+            coords.clear();
         }
-        endLogPlaceMark(segNum++, startUtc, endUtc, coords, writer, title, color);
-        coords.clear();
-
-        // start a new Placemark
-        startUtc = endUtc;
-        writer.writeStartElement("Placemark");
-
-        if (segNum > 10) break;
     }
 }
 
