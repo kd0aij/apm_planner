@@ -571,19 +571,6 @@ QString KMLCreator::finish(bool kmz) {
         writer.writeEndElement(); // PolyStyle
     writer.writeEndElement(); // Style
 
-//    writer.writeStartElement("Folder");
-//    writer.writeTextElement("name", "Flight Path");
-//    writer.writeTextElement("description", m_summary->summarize());
-
-//    /*
-//     * Flight path (complete)
-//     */
-//    foreach(Placemark *pm, m_placemarks) {
-//        writePathElement(writer, pm);
-//    }
-
-//    writer.writeEndElement(); // Folder
-
     writer.writeStartElement("Folder");
     writer.writeTextElement("name", "Flight Path (maneuvers)");
     writer.writeTextElement("description", m_summary->summarize());
@@ -605,19 +592,6 @@ QString KMLCreator::finish(bool kmz) {
     writeManeuverSegments(writer, m_maneuverData);
 
     writer.writeEndElement(); // Folder
-
-//    /*
-//     * Planes element
-//     */
-//    writer.writeStartElement("Folder");
-//    writer.writeTextElement("name", "Attitudes");
-
-//    int idx = 0;
-//    foreach(Placemark *pm, m_placemarks) {
-//        writePlanePlacemarkElement(writer, pm, idx);
-//    }
-
-//    writer.writeEndElement(); // Folder
 
     /*
      * Planes element (quaternion)
@@ -715,6 +689,7 @@ void KMLCreator::writeWaypointsPlacemarkElement(QXmlStreamWriter &writer) {
 
     writer.writeStartElement("Placemark");
         writer.writeTextElement("name", "Waypoints");
+        writer.writeTextElement("visibility", "0");
 
         writer.writeStartElement("Style");
             writer.writeStartElement("LineStyle");
