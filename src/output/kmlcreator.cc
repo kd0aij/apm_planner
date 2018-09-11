@@ -228,9 +228,10 @@ static Attitude attFromNKQ1(NKQ1& q) {
     // special handling for pitch angles near 90 degrees
     // Google Earth KML orientations are sometimes incorrect without this
     if (abs(pitch) > 80) {
+        int noseup = (pitch > 0) ? 1 : -1;
 
         // rotate quaternion by 90 degrees in pitch
-        quat *= QQuaternion::fromAxisAndAngle(0, 1, 0, -90);
+        quat *= QQuaternion::fromAxisAndAngle(0, 1, 0, -noseup*90);
 
         // get rotated euler angles
         // Qt Euler angles are ordered [pitch, yaw, roll] instead of RPY (xyz fixed)
@@ -238,15 +239,18 @@ static Attitude attFromNKQ1(NKQ1& q) {
         quat_to_euler(quat, roll, pitch, yaw);
 
         // then rotate back
-        if (pitch < 0) {
-            pitch += 90;
-        }
-        else {
-            pitch = 90 - pitch;
+        if (((noseup > 0) && (pitch < 0)) || ((noseup < 0) && (pitch > 0))) {
+            pitch += noseup * 90;
+        } else {
+            pitch = noseup*90 - pitch;
             roll += 180;
-            if (roll > 180) roll -= 360;
+            if (roll > 180) {
+              roll -= 360;
+            }
             yaw += 180;
-            if (yaw > 180) yaw -= 360;
+            if (yaw > 180) {
+              yaw -= 360;
+            }
         }
     }
 
