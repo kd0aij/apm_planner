@@ -13,7 +13,7 @@
         <visual_scene id="ID1">
             <node name="SketchUp">
                 <node id="ID2" name="instance_0">
-                    <matrix>0 1 0 0.851428 0 0 1 0.8320829 1 0 0 11.02362 0 0 0 1</matrix>
+                    <matrix>0 1 0 11.02362 0 0 1 0.8320829 1 0 0 -0.851428 0 0 0 1</matrix>
                     <instance_node url="#ID3" />
                 </node>
             </node>
