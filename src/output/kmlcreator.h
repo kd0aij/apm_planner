@@ -305,8 +305,7 @@ struct CommandedWaypoint: DataLine {
  * @brief A container of data for aerobatic maneuver logs in a KML file.
  * First pass through logfile calls processLine which creates a list of GPSRecord
  * and associated POS attitude records in this struct.
- * and marks
- * the beginning and end of all "straight and level" flight segments.
+ * and marks the beginning and end of all "straight and level" flight segments.
  * Each maneuver consists of all records from beginning of S&L segN to
  * the end of S&L segN+1. Takeoff and landing are special; from start of
  * log to beginning of S&L seg0 and from last S&L seg to end of log, respectively.
@@ -410,6 +409,7 @@ private:
     void writeManeuversElement(QXmlStreamWriter &, ManeuverData &, float p_lp=0.95f, float sl_dur=3.0f);
     void writeManeuverSegments(QXmlStreamWriter &, ManeuverData &, float p_lp=0.95f, float sl_dur=3.0f);
     void writePlanePlacemarkElement(QXmlStreamWriter &, Placemark *, int &);
+    void writePlaneTestQ(QXmlStreamWriter &writer);
     void writePlanePlacemarkElementQ(QXmlStreamWriter &, Placemark *, int &);
     void writeWaypointsPlacemarkElement(QXmlStreamWriter &);
     void endLogPlaceMark(int, qint64, qint64, QString, QString&, QXmlStreamWriter&, QString&, QString&);

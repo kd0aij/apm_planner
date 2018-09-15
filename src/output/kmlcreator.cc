@@ -336,7 +336,6 @@ KMLCreator::KMLCreator() :
     m_newATT(false),
     m_mav_type((MAV_TYPE)0)
 {
-//    ManeuverData m_maneuverData();
 }
 
 KMLCreator::KMLCreator(MAV_TYPE mav_type, double iconInterval) :
@@ -612,6 +611,19 @@ QString KMLCreator::finish(bool kmz) {
     writer.writeEndElement(); // Folder
 
     /*
+     * Planes test element
+     */
+    writer.writeStartElement("Folder");
+    writer.writeTextElement("name", "test attitudes");
+    writer.writeTextElement("description", "test");
+
+    foreach(Placemark *pm, m_placemarks) {
+        writePlaneTestQ(writer);
+    }
+
+    writer.writeEndElement(); // Folder
+
+    /*
      * Waypoints element
      */
     writer.writeStartElement("Folder");
@@ -645,7 +657,23 @@ QString KMLCreator::finish(bool kmz) {
     QString baseModelFile = modelInfo.fileName();
 
     QString modelOutput = QString("%1/%2").arg(outDir.absolutePath()).arg(baseModelFile);
-    model.copy(modelOutput);
+    bool status = model.copy(modelOutput);
+
+    // Make sure the model file is in place.
+    QFile model2(":/files/vehicles/block_plane/block_plane_90.dae");
+    QFileInfo modelInfo2(model2);
+    QString baseModelFile2 = modelInfo2.fileName();
+
+    QString modelOutput2 = QString("%1/%2").arg(outDir.absolutePath()).arg(baseModelFile2);
+    status = model2.copy(modelOutput2);
+
+    // Make sure the model file is in place.
+    QFile model3(":/files/vehicles/block_plane/block_plane_m90.dae");
+    QFileInfo modelInfo3(model3);
+    QString baseModelFile3 = modelInfo3.fileName();
+
+    QString modelOutput3 = QString("%1/%2").arg(outDir.absolutePath()).arg(baseModelFile3);
+    status = model3.copy(modelOutput3);
 
     if(kmz) {
         QString fn = file.fileName();
@@ -668,6 +696,8 @@ QString KMLCreator::finish(bool kmz) {
         params << file.fileName();
 
         params << modelOutput;
+        params << modelOutput2;
+        params << modelOutput3;
 
         JlCompress::compressFiles(kmzFile, params);
 
@@ -861,6 +891,141 @@ void KMLCreator::writePlanePlacemarkElement(QXmlStreamWriter &writer, Placemark 
     }
 }
 
+void KMLCreator::writePlaneTestQ(QXmlStreamWriter &writer) {
+    QFile file("/home/markw/attitudes.csv");
+    if(!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QLOG_ERROR() << "Unable to write to attitudes.csv" ;
+    }
+    QTextStream fout(&file);
+
+    // generate a straight-line trajectory for the plane models
+    double lat = 39.8421572f;
+    double alt = 2000.0f;
+
+    double lng = -105.2122285f;
+    const double m2deg = 3.28f / (53 * 5280);
+
+    float roll = 90;
+    float pitch = 0;
+    float yaw = -90; // North is zero, East is 90 (or -270) and West is -90 (or 270)
+
+//    QQuaternion quat = QQuaternion::fromAxisAndAngle(1,0,0,0);
+//    quat *= QQuaternion::fromAxisAndAngle(0, 0, 1, -90);
+//    quat *= QQuaternion::fromAxisAndAngle(1, 0, 0, 30);
+
+//    QVector3D yhat(0, 1, 0);
+//    QVector3D pitchAxis = quat * yhat;
+//    QQuaternion dquat = QQuaternion::fromAxisAndAngle(pitchAxis, 1);
+    QQuaternion qr = QQuaternion::fromAxisAndAngle(1,0,0,roll);
+    QQuaternion qp = QQuaternion::fromAxisAndAngle(0,1,0,pitch);
+    QQuaternion qy = QQuaternion::fromAxisAndAngle(0,0,1,yaw);
+    QQuaternion quat = qy * qp * qr;
+
+    // construct quaternion using Euler xyz-fixed roll/pitch/yaw angles
+    // make the trajectory a loop, with Euler pitch a function of theta, roll=0, and arbitrary constant heading
+
+    float x;  // spatial coord's in meters
+    float xc = lng / m2deg;
+    float yc = lat / m2deg;
+    float radius = 50;
+    float degPerSec = 1;
+
+    for (int t=0; t<360; t+=5) {
+        float theta = t * degPerSec;
+        qp = QQuaternion::fromAxisAndAngle(0,1,0,theta+90);
+        quat = qy * qp * qr;
+
+        x = xc - radius * cos(toRadians(theta));
+        float z = alt + radius * sin(toRadians(theta));
+
+        lat = yc * m2deg;
+        lng = x * m2deg;
+
+        quat_to_euler(quat, roll, pitch, yaw);
+        QLOG_DEBUG() << "pitch: " << pitch << " roll: " << roll << " yaw: " << yaw;
+
+        // special handling for pitch angles near 90 degrees
+        // Google Earth KML orientations are sometimes incorrect without this
+        int vertical = 0;
+        float r = roll;
+        float p = pitch;
+        float y = yaw;
+        if (abs(pitch) > 80) {
+            vertical = (pitch > 0) ? 1 : -1;
+
+            // rotate quaternion by 90 degrees in body-frame pitch
+            QQuaternion quat2 = quat * QQuaternion::fromAxisAndAngle(0, 1, 0, -vertical*90);
+
+            // get rotated euler angles
+            // Qt Euler angles are ordered [pitch, yaw, roll] instead of RPY (xyz fixed)
+            // so use the logic from AP_Math.cpp instead
+            quat_to_euler(quat2, r, p, y);
+            QLOG_DEBUG() << "vertical: " << vertical << " p: " << p << " r: " << r << " y: " << y;
+        }
+
+        writer.writeStartElement("Placemark");
+            writer.writeTextElement("visibility", "1");
+
+            writer.writeStartElement("Model");
+                writer.writeTextElement("altitudeMode", "absolute");
+                writer.writeStartElement("Location");
+                    QString strLat = QString::number(lat,'g',13);
+                    writer.writeTextElement("latitude", strLat);
+                    QString strLng = QString::number(lng,'g',13);
+                    writer.writeTextElement("longitude", strLng);
+                    QString strAlt = QString::number(z);
+                    writer.writeTextElement("altitude", strAlt);
+                writer.writeEndElement(); // Location
+
+                writer.writeStartElement("Orientation");
+                    QString hdgStr = QString::number(y);
+                    writer.writeTextElement("heading", hdgStr);
+                    // the sign of tilt and roll has to be changed
+                    QString signChangedPitch = QString::number(-p);
+                    QString signChangedRoll = QString::number(-r);
+                    writer.writeTextElement("tilt", signChangedPitch);
+                    writer.writeTextElement("roll", signChangedRoll);
+                writer.writeEndElement(); // Orientation
+
+                writer.writeStartElement("Scale");
+                    writer.writeTextElement("x", ".5");
+                    writer.writeTextElement("y", ".5");
+                    writer.writeTextElement("z", ".5");
+                writer.writeEndElement(); // Scale
+
+                // use normal model for vertical=0, and +/-90 degree pitch models for noseup/nosedown
+                writer.writeStartElement("Link");
+                if (vertical == 0) {
+                    writer.writeTextElement("href", "block_plane_0.dae");
+                } else if (vertical > 0) {
+                    writer.writeTextElement("href", "block_plane_90.dae");
+                } else {
+                    writer.writeTextElement("href", "block_plane_m90.dae");
+                }
+                writer.writeEndElement(); // Link
+
+            writer.writeEndElement(); // Model
+
+            QString desc;
+            desc.append(QString("RPY: %1, %2, %3\nLLA: %4, %5, %6\n")
+                     .arg(roll,6,'f',1)
+                     .arg(pitch,6,'f',1)
+                     .arg(yaw,6,'f',1)
+                        .arg(strLat).arg(strLng).arg(strAlt));
+            fout << desc << "\n";
+
+            if(!desc.isEmpty()) {
+                writer.writeStartElement("description");
+                writer.writeCDATA(desc);
+                writer.writeEndElement(); // description
+            }
+
+        writer.writeEndElement(); // Placemark
+
+    }
+    file.close();
+}
+
 void KMLCreator::writePlanePlacemarkElementQ(QXmlStreamWriter &writer, Placemark *p, int &idx) {
     if(!p || p->mPoints.size()==0) {
         return;
@@ -878,8 +1043,6 @@ void KMLCreator::writePlanePlacemarkElementQ(QXmlStreamWriter &writer, Placemark
     float curLat = gps.lat().toFloat();
     float curLng = gps.lng().toFloat();
     float curAlt = gps.alt().toFloat();
-//    QString lastCoords = p->mPoints.first().toStringForKml();
-//    qint64 startUtc = p->mPoints.first().getUtc_ms();
 
     foreach(GPSRecord c, p->mPoints) {
 
@@ -898,20 +1061,8 @@ void KMLCreator::writePlanePlacemarkElementQ(QXmlStreamWriter &writer, Placemark
             curLng = newLng;
             curAlt = newAlt;
             QString dateTime = utc2KmlTimeStamp(c.getUtc_ms());
-//            QString curCoords = c.toStringForKml();
-//            QString coords = lastCoords + "\n" + curCoords;
-//            lastCoords = curCoords;
-//            qint64 endUtc = c.getUtc_ms();
-
             writer.writeStartElement("Placemark");
-//            writer.writeStartElement("TimeSpan");
-//            writer.writeTextElement("begin", utc2KmlTimeStamp(startUtc));
-//            writer.writeTextElement("end", utc2KmlTimeStamp(endUtc));
-//            writer.writeEndElement(); // TimeSpan
-
-//            startUtc = endUtc;
-
-            writer.writeStartElement("TimeStamp");
+                writer.writeStartElement("TimeStamp");
                     writer.writeTextElement("when", utc2KmlTimeStamp(c.getUtc_ms()));
                 writer.writeEndElement(); // TimeStamp
 
@@ -921,23 +1072,8 @@ void KMLCreator::writePlanePlacemarkElementQ(QXmlStreamWriter &writer, Placemark
                 writer.writeTextElement("name", QString("%1: %2: %3: %4").arg(p->title).arg(idx++).arg(ts_sec,5,'f',3).arg(timeLabel));
                 writer.writeTextElement("visibility", "1");
 
-//                writer.writeTextElement("styleUrl", "#yellowLineGreenPoly");
-//                writer.writeStartElement("Style");
-//                    writer.writeStartElement("LineStyle");
-//                    writer.writeTextElement("color", "FF00FF00");
-//                    writer.writeTextElement("colorMode", "normal");
-//                    writer.writeTextElement("width", "2");
-//                    writer.writeEndElement(); // LineStyle
-//                writer.writeEndElement(); // Style
-
-//                writer.writeStartElement("LineString");
-//                writer.writeTextElement("altitudeMode", "absolute");
-//                writer.writeTextElement("coordinates", coords);
-//                writer.writeEndElement(); // LineString
-
                 writer.writeStartElement("Model");
                     writer.writeTextElement("altitudeMode", "absolute");
-
                     writer.writeStartElement("Location");
                         writer.writeTextElement("latitude", c.lat());
                         writer.writeTextElement("longitude", c.lng());
@@ -948,7 +1084,7 @@ void KMLCreator::writePlanePlacemarkElementQ(QXmlStreamWriter &writer, Placemark
                     QString yaw = att.yaw();
 
                     writer.writeStartElement("Orientation");
-                    writer.writeTextElement("heading", yaw);
+                        writer.writeTextElement("heading", yaw);
                         // the sign of tilt and roll has to be changed
                         QString signChangedPitch = QString::number(att.pitch().toDouble() * -1);
                         QString signChangedRoll = QString::number(att.roll().toDouble() * -1);
@@ -1080,7 +1216,7 @@ QList<SegSpec *> KMLCreator::seg_maneuvers(float sl_dur, float p_lp, ManeuverDat
                 beginUtc = md.mGPS.at(slBegin).getUtc_ms();
                 endUtc = md.mGPS.at(listIndex).getUtc_ms();
                 duration = endUtc - beginUtc;
-                // if segment is longer than 3 seconds
+                // if segment is longer than sl_dur seconds
                 if (duration > sl_dur) {
                     // record this segment and start a new one
                     slSegments.append(new SegSpec(slBegin, listIndex, beginUtc, endUtc, duration));
@@ -1112,7 +1248,7 @@ void KMLCreator::writeManeuversElement(QXmlStreamWriter &writer, ManeuverData &m
     }
 
     // start a new Placemark at the middle of each straight and level (inverted or not) segment
-    // which is longer than x seconds. Name them maneuver N
+    // which is longer than sl_dur seconds. Name it maneuver N
 
     // construct a list of straight & level start and end indexes
     QList<SegSpec*> slSegments = seg_maneuvers(sl_dur, p_lp, md);
