@@ -166,6 +166,8 @@
         <file>files/images/mavs/frames-Y6B.png</file>
         <file alias="droneshareLogo">files/images/droneshare_logo.png</file>
         <file>files/images/components/1downarrow.png</file>
+        <file>files/vehicles/block_plane/block_plane_90.dae</file>
+        <file>files/vehicles/block_plane/block_plane_m90.dae</file>
     </qresource>
     <qresource prefix="/general">
         <file alias="vera.ttf">files/styles/Vera.ttf</file>

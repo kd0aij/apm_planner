@@ -18,8 +18,6 @@
 
 namespace kml {
 
-const float PI = 3.14159265;
-
 static const QString kModesToColors[][2] = {
     // Colors are expressed in aabbggrr.
     {"AUTO", "FFFF00FF"},       // Plane/Copter/Rover
@@ -53,7 +51,12 @@ static const QString kModesToColors[][2] = {
 
 /** @brief Return the specified degrees converted to radians */
 static float toRadians(float deg) {
-    return deg * (PI / 180);
+    return float(double(deg) * M_PI / 180);
+}
+
+/** @brief Return the specified radians converted to degrees */
+static float toDegrees(float rad) {
+    return float(double(rad) * 180 / M_PI);
 }
 
 /** @brief Return the distance between the two specified lat/lng pairs in km */
@@ -193,31 +196,14 @@ static GPSRecord gpsFromPOS(POSRecord& pos, qint64 gpsOffset, QList<GPSRecord> g
     return a;
 }
 
-// get euler roll angle
-float get_euler_roll(QQuaternion& q)
-{
-    return (atan2f(2.0f*(q.scalar()*q.x() + q.y()*q.z()), 1.0f - 2.0f*(q.x()*q.x() + q.y()*q.y())));
-}
-
-// get euler pitch angle
-float get_euler_pitch(QQuaternion& q)
-{
-    return asinf(2.0f*(q.scalar()*q.y() - q.z()*q.x()));
-}
-
-// get euler yaw angle
-float get_euler_yaw(QQuaternion& q)
-{
-    return atan2f(2.0f*(q.scalar()*q.z() + q.x()*q.y()), 1.0f - 2.0f*(q.y()*q.y() + q.z()*q.z()));
-}
-
-// create eulers from a quaternion
+// get euler angles from a quaternion
+// Qt Euler angles are ordered [pitch, yaw, roll] instead of RPY (xyz fixed)
+// so use the logic from AP_Math.cpp instead
 void quat_to_euler(QQuaternion& q, float &roll, float &pitch, float &yaw)
 {
-    float rad2deg = 180 / M_PI;
-    roll = rad2deg * get_euler_roll(q);
-    pitch = rad2deg * get_euler_pitch(q);
-    yaw = rad2deg * get_euler_yaw(q);
+    roll = toDegrees(atan2f(2.0f*(q.scalar()*q.x() + q.y()*q.z()), 1.0f - 2.0f*(q.x()*q.x() + q.y()*q.y())));
+    pitch = toDegrees(asinf(2.0f*(q.scalar()*q.y() - q.z()*q.x())));
+    yaw = toDegrees(atan2f(2.0f*(q.scalar()*q.z() + q.x()*q.y()), 1.0f - 2.0f*(q.y()*q.y() + q.z()*q.z())));
 }
 
 static Attitude attFromNKQ1(NKQ1& q) {
@@ -225,34 +211,34 @@ static Attitude attFromNKQ1(NKQ1& q) {
     float roll, pitch, yaw;
     quat_to_euler(quat, roll, pitch, yaw);
 
-    // special handling for pitch angles near 90 degrees
-    // Google Earth KML orientations are sometimes incorrect without this
-    if (abs(pitch) > 80) {
-        int noseup = (pitch > 0) ? 1 : -1;
+//    // special handling for pitch angles near 90 degrees
+//    // Google Earth KML orientations are sometimes incorrect without this
+//    if (abs(pitch) > 80) {
+//        int noseup = (pitch > 0) ? 1 : -1;
 
-        // rotate quaternion by 90 degrees in pitch
-        quat *= QQuaternion::fromAxisAndAngle(0, 1, 0, -noseup*90);
+//        // rotate quaternion by 90 degrees in pitch
+//        quat *= QQuaternion::fromAxisAndAngle(0, 1, 0, -noseup*90);
 
-        // get rotated euler angles
-        // Qt Euler angles are ordered [pitch, yaw, roll] instead of RPY (xyz fixed)
-        // so use the logic from AP_Math.cpp instead
-        quat_to_euler(quat, roll, pitch, yaw);
+//        // get rotated euler angles
+//        // Qt Euler angles are ordered [pitch, yaw, roll] instead of RPY (xyz fixed)
+//        // so use the logic from AP_Math.cpp instead
+//        quat_to_euler(quat, roll, pitch, yaw);
 
-        // then rotate back
-        if (((noseup > 0) && (pitch < 0)) || ((noseup < 0) && (pitch > 0))) {
-            pitch += noseup * 90;
-        } else {
-            pitch = noseup*90 - pitch;
-            roll += 180;
-            if (roll > 180) {
-              roll -= 360;
-            }
-            yaw += 180;
-            if (yaw > 180) {
-              yaw -= 360;
-            }
-        }
-    }
+//        // then rotate back
+//        if (((noseup > 0) && (pitch < 0)) || ((noseup < 0) && (pitch > 0))) {
+//            pitch += noseup * 90;
+//        } else {
+//            pitch = noseup*90 - pitch;
+//            roll += 180;
+//            if (roll > 180) {
+//              roll -= 360;
+//            }
+//            yaw += 180;
+//            if (yaw > 180) {
+//              yaw -= 360;
+//            }
+//        }
+//    }
 
     Attitude a;
     a.values.insert("Roll", QString::number(roll, 'f', 5));
@@ -264,8 +250,9 @@ static Attitude attFromNKQ1(NKQ1& q) {
     return a;
 }
 
+// this assumes that the EKF3 and EKF2 quaternion records are identical
 static Attitude attFromXKQ1(XKQ1& q) {
-    return attFromNKQ1((NKQ1&) q);
+    return attFromNKQ1((NKQ1&)q);
 }
 
 Placemark::Placemark(QString t, QString m, QString clr):
@@ -651,29 +638,36 @@ QString KMLCreator::finish(bool kmz) {
     QFileInfo fileInfo(file);
     QDir outDir = fileInfo.absoluteDir();
 
-    // Make sure the model file is in place.
+    // Make sure the model files are in place.
     QFile model(":/files/vehicles/block_plane/block_plane_0.dae");
     QFileInfo modelInfo(model);
     QString baseModelFile = modelInfo.fileName();
 
     QString modelOutput = QString("%1/%2").arg(outDir.absolutePath()).arg(baseModelFile);
     bool status = model.copy(modelOutput);
+    if (!status) {
+        QLOG_DEBUG() << "copy of " << modelOutput << " failed";
+    }
 
-    // Make sure the model file is in place.
     QFile model2(":/files/vehicles/block_plane/block_plane_90.dae");
     QFileInfo modelInfo2(model2);
     QString baseModelFile2 = modelInfo2.fileName();
 
     QString modelOutput2 = QString("%1/%2").arg(outDir.absolutePath()).arg(baseModelFile2);
     status = model2.copy(modelOutput2);
+    if (!status) {
+        QLOG_DEBUG() << "copy of " << modelOutput2 << " failed";
+    }
 
-    // Make sure the model file is in place.
     QFile model3(":/files/vehicles/block_plane/block_plane_m90.dae");
     QFileInfo modelInfo3(model3);
     QString baseModelFile3 = modelInfo3.fileName();
 
     QString modelOutput3 = QString("%1/%2").arg(outDir.absolutePath()).arg(baseModelFile3);
     status = model3.copy(modelOutput3);
+    if (!status) {
+        QLOG_DEBUG() << "copy of " << modelOutput3 << " failed";
+    }
 
     if(kmz) {
         QString fn = file.fileName();
@@ -891,31 +885,76 @@ void KMLCreator::writePlanePlacemarkElement(QXmlStreamWriter &writer, Placemark 
     }
 }
 
-void KMLCreator::writePlaneTestQ(QXmlStreamWriter &writer) {
-    QFile file("/home/markw/attitudes.csv");
-    if(!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QLOG_ERROR() << "Unable to write to attitudes.csv" ;
+double m2dLat(double v) {
+    return v / 111111.0;
+}
+
+double m2dLng(double v, double lat) {
+    return v / (111111.0 * cos(toRadians(lat)));
+}
+
+double dLat2m(double v) {
+    return v * 111111.0;
+}
+
+double dLng2m(double v, double lat) {
+    return v * 111111.0 * cos(toRadians(lat));
+}
+
+float wrappedPitch(float pitch) {
+    // wrap to [-180,180]
+    int sign = (pitch>0) ? 1 : -1;
+    while (abs(pitch) > 180) {
+        pitch -= sign * 360;
     }
-    QTextStream fout(&file);
+    // constrain to [-90,90]
+    if (pitch > 90) {
+        pitch = 180 - pitch;
+    } else if (pitch < -90) {
+        pitch = -180 - pitch;
+    }
+    return pitch;
+}
+
+void KMLCreator::writePlaneTestQ(QXmlStreamWriter &writer) {
+    enum maneuverType{
+        loop,
+        outside_loop,
+        ke_loop,
+        rolling_loop,
+        circle,
+        rolling_circle
+    } maneuver;
+    const char* maneuverString[] {
+        "loop",
+        "ke_loop",
+        "rolling_loop",
+        "circle",
+        "rolling_circle"
+    };
+
+    maneuver = outside_loop;
+
+    QFileInfo fileInfo(m_filename);
+    QDir outDir = fileInfo.absoluteDir();
+
+    QFile file(QString("%1/%2_poses.csv").arg(outDir.absolutePath()).arg(maneuverString[maneuver]));
+    if(!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QLOG_ERROR() << "Unable to write to" << file.fileName();
+    }
+    QTextStream pose_out(&file);
+    pose_out << maneuverString[maneuver] << "\nRoll,Pitch,Yaw,NoseUp,Roll,Pitch,Yaw,Lat,Lon,Alt\n";
 
     // generate a straight-line trajectory for the plane models
-    double lat = 39.8421572f;
-    double alt = 2000.0f;
+    double clat = 39.8421572;
+    double alt = 2000;
 
-    double lng = -105.2122285f;
-    const double m2deg = 3.28f / (53 * 5280);
+    double clng = -105.2122285;
 
-    float roll = 90;
+    float roll = 0;
     float pitch = 0;
-    float yaw = -90; // North is zero, East is 90 (or -270) and West is -90 (or 270)
+    float yaw = 0; // North is zero, East is 90 (or -270) and West is -90 (or 270)
 
-//    QQuaternion quat = QQuaternion::fromAxisAndAngle(1,0,0,0);
-//    quat *= QQuaternion::fromAxisAndAngle(0, 0, 1, -90);
-//    quat *= QQuaternion::fromAxisAndAngle(1, 0, 0, 30);
-
-//    QVector3D yhat(0, 1, 0);
-//    QVector3D pitchAxis = quat * yhat;
-//    QQuaternion dquat = QQuaternion::fromAxisAndAngle(pitchAxis, 1);
     QQuaternion qr = QQuaternion::fromAxisAndAngle(1,0,0,roll);
     QQuaternion qp = QQuaternion::fromAxisAndAngle(0,1,0,pitch);
     QQuaternion qy = QQuaternion::fromAxisAndAngle(0,0,1,yaw);
@@ -924,65 +963,125 @@ void KMLCreator::writePlaneTestQ(QXmlStreamWriter &writer) {
     // construct quaternion using Euler xyz-fixed roll/pitch/yaw angles
     // make the trajectory a loop, with Euler pitch a function of theta, roll=0, and arbitrary constant heading
 
-    float x;  // spatial coord's in meters
-    float xc = lng / m2deg;
-    float yc = lat / m2deg;
-    float radius = 50;
+    float xp, yp, z;  // spatial coord's in meters
+    float radius = 25;
     float degPerSec = 1;
 
     for (int t=0; t<360; t+=5) {
         float theta = t * degPerSec;
-        qp = QQuaternion::fromAxisAndAngle(0,1,0,theta+90);
+
+        switch (maneuver) {
+        case loop:
+            roll = 0;
+            pitch = theta+90;
+            yaw = -90;
+            xp = -radius * cos(toRadians(theta));
+            yp = 0;
+            z = alt + radius * sin(toRadians(theta));
+            break;
+        case outside_loop:
+            roll = 180;
+            pitch = theta+90;
+            yaw = -90;
+            xp = -radius * cos(toRadians(theta));
+            yp = 0;
+            z = alt + radius * sin(toRadians(theta));
+            break;
+        case ke_loop:
+            roll = 90;
+            pitch = theta+90;
+            yaw = -90;
+            xp = -radius * cos(toRadians(theta));
+            yp = 0;
+            z = alt + radius * sin(toRadians(theta));
+            break;
+        case rolling_loop:
+            roll = theta;
+            pitch = theta+90;
+            yaw = -90;
+            xp = -radius * cos(toRadians(theta));
+            yp = 0;
+            z = alt + radius * sin(toRadians(theta));
+            break;
+        case circle:
+            roll = 0;
+            pitch = 0;
+            yaw = -theta;
+            xp = radius * cos(toRadians(theta));
+            yp = radius * sin(toRadians(theta));
+            z = alt;
+            break;
+        case rolling_circle:
+            roll = theta;
+            pitch = 0;
+            yaw = -theta;
+            xp = radius * cos(toRadians(theta));
+            yp = radius * sin(toRadians(theta));
+            z = alt;
+            break;
+        }
+
+        qr = QQuaternion::fromAxisAndAngle(1,0,0,roll);
+        qp = QQuaternion::fromAxisAndAngle(0,1,0,pitch);
+        qy = QQuaternion::fromAxisAndAngle(0,0,1,yaw);
+
+        double lat = clat + m2dLat(yp);
+        double lng = clng + m2dLng(xp, clat);
+
+        QLOG_DEBUG() << "construct quat, RPY: " << roll << ":" << wrappedPitch(pitch) << ":" << yaw;
         quat = qy * qp * qr;
-
-        x = xc - radius * cos(toRadians(theta));
-        float z = alt + radius * sin(toRadians(theta));
-
-        lat = yc * m2deg;
-        lng = x * m2deg;
-
         quat_to_euler(quat, roll, pitch, yaw);
-        QLOG_DEBUG() << "pitch: " << pitch << " roll: " << roll << " yaw: " << yaw;
+        QLOG_DEBUG() << "quat_to_euler,  RPY: " << roll << ":" << pitch << ":" << yaw;
 
         // special handling for pitch angles near 90 degrees
         // Google Earth KML orientations are sometimes incorrect without this
-        int vertical = 0;
-        float r = roll;
-        float p = pitch;
-        float y = yaw;
-        if (abs(pitch) > 80) {
-            vertical = (pitch > 0) ? 1 : -1;
+        enum modelType {
+            normal=0,
+            noseup=1,
+            nosedown=-1
+        } model_type;
+
+        model_type = normal;
+        if (abs(pitch) > 45) {
+            model_type = (pitch > 0) ? noseup : nosedown;
+            pose_out << QString("%1, %2, %3,  %4  ").arg(roll,6,'f',1).arg(pitch,6,'f',1).arg(yaw,6,'f',1).arg(model_type);
 
             // rotate quaternion by 90 degrees in body-frame pitch
-            QQuaternion quat2 = quat * QQuaternion::fromAxisAndAngle(0, 1, 0, -vertical*90);
+            QQuaternion quat2 = quat * QQuaternion::fromAxisAndAngle(0, 1, 0, -model_type*90);
 
             // get rotated euler angles
-            // Qt Euler angles are ordered [pitch, yaw, roll] instead of RPY (xyz fixed)
-            // so use the logic from AP_Math.cpp instead
-            quat_to_euler(quat2, r, p, y);
-            QLOG_DEBUG() << "vertical: " << vertical << " p: " << p << " r: " << r << " y: " << y;
+            quat_to_euler(quat2, roll, pitch, yaw);
+            QLOG_DEBUG() << "vertical: " << model_type << "RPY: " << roll << ":" << pitch << ":" << yaw;
+        } else {
+            pose_out << QString("%1, %2, %3,  %4  ").arg(roll,6,'f',1).arg(pitch,6,'f',1).arg(yaw,6,'f',1).arg(normal);
         }
 
+        QString strLat = QString::number(lat,'g',13);
+        QString strLng = QString::number(lng,'g',13);
+        QString strAlt = QString::number(z);
+        pose_out << QString("%1, %2, %3, %4, %5, %6\n")
+                        .arg(roll,6,'f',1).arg(pitch,6,'f',1).arg(yaw,6,'f',1)
+                        .arg(strLat).arg(strLng).arg(strAlt);
+
         writer.writeStartElement("Placemark");
+
             writer.writeTextElement("visibility", "1");
 
             writer.writeStartElement("Model");
                 writer.writeTextElement("altitudeMode", "absolute");
                 writer.writeStartElement("Location");
-                    QString strLat = QString::number(lat,'g',13);
                     writer.writeTextElement("latitude", strLat);
-                    QString strLng = QString::number(lng,'g',13);
                     writer.writeTextElement("longitude", strLng);
-                    QString strAlt = QString::number(z);
                     writer.writeTextElement("altitude", strAlt);
                 writer.writeEndElement(); // Location
 
                 writer.writeStartElement("Orientation");
-                    QString hdgStr = QString::number(y);
+                    QString hdgStr = QString::number(yaw);
                     writer.writeTextElement("heading", hdgStr);
+                    // transform from NED to ENU?
                     // the sign of tilt and roll has to be changed
-                    QString signChangedPitch = QString::number(-p);
-                    QString signChangedRoll = QString::number(-r);
+                    QString signChangedPitch = QString::number(-pitch);
+                    QString signChangedRoll = QString::number(-roll);
                     writer.writeTextElement("tilt", signChangedPitch);
                     writer.writeTextElement("roll", signChangedRoll);
                 writer.writeEndElement(); // Orientation
@@ -995,24 +1094,27 @@ void KMLCreator::writePlaneTestQ(QXmlStreamWriter &writer) {
 
                 // use normal model for vertical=0, and +/-90 degree pitch models for noseup/nosedown
                 writer.writeStartElement("Link");
-                if (vertical == 0) {
+                switch (model_type) {
+                case normal:
                     writer.writeTextElement("href", "block_plane_0.dae");
-                } else if (vertical > 0) {
+                    break;
+                case noseup:
                     writer.writeTextElement("href", "block_plane_90.dae");
-                } else {
+                    break;
+                case nosedown:
                     writer.writeTextElement("href", "block_plane_m90.dae");
+                    break;
                 }
                 writer.writeEndElement(); // Link
-
             writer.writeEndElement(); // Model
 
             QString desc;
-            desc.append(QString("RPY: %1, %2, %3\nLLA: %4, %5, %6\n")
+            desc.append(QString("%1\nRPY: %2, %3, %4\nLat: %5\nLon: %6\nAlt: %7\n")
+                     .arg(maneuverString[maneuver])
                      .arg(roll,6,'f',1)
                      .arg(pitch,6,'f',1)
                      .arg(yaw,6,'f',1)
-                        .arg(strLat).arg(strLng).arg(strAlt));
-            fout << desc << "\n";
+                     .arg(strLat).arg(strLng).arg(strAlt));
 
             if(!desc.isEmpty()) {
                 writer.writeStartElement("description");
