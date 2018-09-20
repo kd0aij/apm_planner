@@ -1020,6 +1020,9 @@ OTHER_FILES += \
 #INSTALLS            += sources target
 
 DISTFILES += \
-    qml/components/BarGauge.qml
+    qml/components/BarGauge.qml \
+    files/vehicles/block_plane/block_plane_0.dae \
+    files/vehicles/block_plane/block_plane_90.dae \
+    files/vehicles/block_plane/block_plane_m90.dae
 
 

@@ -13,6 +13,7 @@ extern mavlink_status_t m_mavlink_status[MAVLINK_COMM_NUM_BUFFERS]; // defined i
 #include <QStringList>
 #include <QXmlStreamWriter>
 #include <QPointer>
+#include <QQuaternion>
 
 #include "logdata.h"
 
@@ -167,6 +168,8 @@ struct Attitude: DataLine {
     QString yawIn()   const { return values.value("YawIn").isEmpty() ? values.value("DesYaw") : values.value("YawIn"); }
     QString yaw()     const { return values.value("Yaw"); }
     QString navYaw()  const { return values.value("NavYaw"); }
+
+    QQuaternion q;
 
     virtual bool hasData() {
         return (values.value("Roll").length() > 0);
@@ -402,12 +405,31 @@ public:
 
     virtual ~KMLCreator();
 
+    enum modelType {
+        normal=0,
+        noseup=1,
+        nosedown=-1
+    };
+
+    void get_corrected_Euler(QQuaternion quat,
+                         float vthresh, float &avgYaw,
+                         float &roll, float &pitch, float &yaw,
+                         float &rollc, float &pitchc, float &yawc,
+                         modelType &model_type);
+    void write_kml(QXmlStreamWriter &writer, QString title, int &idx,
+                   QTextStream &pose_out,
+                   qint64 UTCms, qint64 timeUS,
+                   double lat, double lng, double z,
+                   float roll, float pitch, float yaw,
+                   float rollc, float pitchc, float yawc,
+                   modelType model_type);
+
 private:
     Placemark *lastPlacemark();
 
     void writePathElement(QXmlStreamWriter &writer, Placemark *p);
-    void writeManeuversElement(QXmlStreamWriter &, ManeuverData &, float p_lp=0.95f, float sl_dur=3.0f);
-    void writeManeuverSegments(QXmlStreamWriter &, ManeuverData &, float p_lp=0.95f, float sl_dur=3.0f);
+    void writeManeuversElement(QXmlStreamWriter &, ManeuverData &, float p_lp=0.0f, float sl_dur=0.95f);
+    void writeManeuverSegments(QXmlStreamWriter &, ManeuverData &, float p_lp=0.0f, float sl_dur=0.95f);
     void writePlanePlacemarkElement(QXmlStreamWriter &, Placemark *, int &);
     void writePlaneTestQ(QXmlStreamWriter &writer);
     void writePlanePlacemarkElementQ(QXmlStreamWriter &, Placemark *, int &);
